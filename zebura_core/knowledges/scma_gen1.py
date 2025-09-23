@@ -1,0 +1,603 @@
+# 一个database为一个项目，生成该DB下所有表的元信息
+# grouping, tagging 表 并给出field 的上位词
+# 导出到metadata.xlsx, 用于人工修正
+##########################################
+import sys,os
+sys.path.insert(0, os.getcwd().lower())
+import zebura_core.constants as const
+from zebura_core.LLM.prompt_loader1 import Prompt_generator
+from zebura_core.LLM.llm_agent import LLMAgent
+from zebura_core.LLM.ans_extractor import AnsExtractor
+from zebura_core.utils.lang_detector import langcode2name, detect_language
+from dbaccess.db_ops1 import DBops
+from datetime import datetime, date
+import json
+import random
+import asyncio
+import pandas as pd
+
+def default_serializer(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+class ScmaGen:
+    # 需要明确指定数据库及生成内容所用语言
+    # 为获得最佳性能生成的元信息所用语言与prompt语言和应用时交互语言一致最好
+    def __init__(self, dbServer, lang='English'):
+        if dbServer is None:
+            raise ValueError("db_name must be specified")
+        
+        self.ops = DBops(dbServer)
+        self.db_name = dbServer['db_name']
+        self.db_type = dbServer['db_type']
+
+        self.prompter = Prompt_generator(lang=lang)
+        self.ans_extr = AnsExtractor()
+        self.llm = LLMAgent()
+        
+        self.lang = lang                            # 生成元信息所用语言
+        self.MAX_GROUP = 10                         # 最大group数
+        self.MAX_TAG = 15                           # 最大tag数
+        self.MAX_HYPERFIELD = 100                   # 最大hyperfield数,上位词
+        
+        self.database = const.Z_META_PROJECT        # 项目信息
+        self.fields = const.Z_META_FIELDS           # 字段信息
+        self.tables = const.Z_META_TABLES           # 表信息
+        self.terms = const.Z_META_TERMS             # 术语表
+
+        self.scma_dfs = None
+         
+    # 从SQL中读一张表的结构, 生成表结构信息保存入self.scma_dfs
+    def gen_tb_scma(self, tb_name):
+        
+        tb_scma = self.ops.show_tb_schema(tb_name)
+        print(f"Table: {tb_name}, Columns: {len(tb_scma)}")
+        
+        self.scma_dfs['tables'] = pd.concat([self.scma_dfs['tables'], pd.DataFrame([{'table_name': tb_name, 'column_count': len(tb_scma)}])], ignore_index=True)
+        tb_df = self.scma_dfs['tables']
+
+        result = self.ops.show_randow_rows(tb_name, 3)
+        result = result.mappings().all()
+        col_names = result[0].keys()
+        tb_df.loc[tb_df['table_name'] == tb_name, 'cols_info'] = ','.join(col_names)
+        # 字段名所用语言为tb_lang
+        langCode = detect_language(' '.join(col_names))
+        if langCode is not None:
+            lang = langcode2name(langCode)
+            tb_df.loc[tb_df['table_name'] == tb_name, 'tb_lang'] = lang
+        
+        result_dicts = [dict(row) for row in result]  # Convert RowMapping objects to dictionaries
+        # examples dataframe
+        ex_df = pd.DataFrame(result_dicts)
+        
+        tStr = json.dumps(result_dicts, ensure_ascii=False, default=default_serializer)
+        # print(json.loads(tStr))
+        tb_df.loc[tb_df['table_name'] == tb_name, 'examples'] = tStr
+        # 从字典生成dataframe
+        fd_df = pd.DataFrame(tb_scma,columns=['column_name','data_type','character_maximum_length']) 
+        fd_df['table_name'] = tb_name
+        fd_df.rename(columns={'data_type':'column_type','character_maximum_length':'column_length'}, inplace=True)
+        for col in ['column_name','column_type']:
+            fd_df[col] = fd_df[col].astype('object')
+        # 添加实例和实例所用语言
+        for key in ex_df.columns.tolist():
+            one_col = ex_df[key].tolist()
+            fd_df.loc[fd_df['column_name']==key, 'examples'] = str(one_col)
+            # 只有字符类型才检测语言
+            column_type_series = fd_df.loc[fd_df['column_name'] == key, 'column_type']
+            # Check for 'char' or 'text' in the column_type
+            str_flag = column_type_series.str.contains('char', case=False).any()
+            str_flag = str_flag or column_type_series.str.contains('text', case=False).any()
+
+            if str_flag:
+                langCode = detect_language(' '.join(one_col))
+                if langCode is not None:
+                    lang = langcode2name(langCode)
+                    fd_df.loc[fd_df['column_name'] == key, 'val_lang'] = lang
+            
+        result = self.ops.show_primary_key(tb_name)
+        primary_keys = result.fetchall()
+        primary_keys = [pk[0] for pk in primary_keys]
+        if primary_keys:
+            fd_df.loc[fd_df['column_name'].isin(primary_keys), 'column_key'] = 'PRI'
+        else:
+            fd_df['column_key'] = ''
+
+        self.scma_dfs['fields'] = pd.concat([self.scma_dfs['fields'], fd_df], ignore_index=True)
+        return
+    
+    # 从数据库中读取所有表的schema信息
+    def gen_db_info(self, meta_xls):
+        self.scma_dfs= {'tables':pd.DataFrame(columns = self.tables), 
+                        'fields':pd.DataFrame(columns = self.fields),
+                        'database':pd.DataFrame(columns = self.database),
+                        'terms':pd.DataFrame(columns = self.terms)
+                        }
+        tpj = {'database_name':self.db_name,
+                'chat_lang':self.lang,
+                'possessor': const.C_SOFTWARE_NAME
+        }
+        self.scma_dfs['database'] = pd.concat([self.scma_dfs['database'], pd.DataFrame([tpj])], ignore_index=True)
+
+        # 生成三张表: database, tables, fields
+        tables = self.ops.show_tables()
+        tables = [table[0] for table in tables]
+        print(f"Database: {self.db_name}, Tables: {len(tables)}")
+        count = 0
+        for table_name in tables:
+            self.gen_tb_scma(table_name)
+            print(count, table_name)
+            count += 1
+        # Check if the meta_xls file exists, and delete it if it does
+        if os.path.exists(meta_xls):
+            os.remove(meta_xls)
+            print(f"Existing file {meta_xls} has been deleted.")
+        self.output_schma(meta_xls)
+        print(f"the schema information of each table are saved to {meta_xls}")
+        return
+    
+    # table grouping and tagging
+    async def tb_enhance(self, meta_xls):
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        tb_df = self.scma_dfs['tables']
+        tb_df['group_name'] = tb_df['group_name'].astype('object')
+        tb_df['tags'] = tb_df['tags'].astype('object')
+        gt_df = self.scma_dfs['terms']
+        groupList = gt_df[gt_df['ttype']=='group'].to_dict(orient='records')
+        tagList = gt_df[gt_df['ttype']=='tag'].to_dict(orient='records')
+
+        grpDict = {group['term_name']:[] for group in groupList}
+        tagDict = {tag['term_name']:[] for tag in tagList}
+
+        groupList = [f"{group['term_name']}: {group['term_desc']}" for group in groupList]
+        tagList = [f"{tag['term_name']}: {tag['term_desc']}" for tag in tagList]
+        group_Info = '\n'.join(groupList)
+        tag_Info = '\n'.join(tagList)
+
+        # 用整理好的standard group和tag更新表信息
+        tmpl = self.prompter.tasks['tb_classification']
+        for _, row in tb_df.iterrows():
+            print(row['table_name'])
+            samples = json.loads(row['examples'])
+            s_df = pd.DataFrame(samples)
+            tb_md = s_df.to_markdown(index=False)
+            table_info = f"table name:{row['table_name']}\ncolumns and samples:\n{tb_md}"
+            query = tmpl.format(table_info=table_info, group_info=group_Info, tag_info=tag_Info)
+            print(f"length of query: {len(query)}")
+            llm_answ = await self.llm.ask_llm(query, '')
+            # Track the query
+            # with open('tem.out', 'a', encoding='utf-8') as f:
+            #     f.write(query + '\n')
+            #     f.write(llm_answ + '\n------------\n')
+
+            result = self.ans_extr.output_extr(llm_answ)
+            if result['status'] == 'failed' or 'group' not in result['msg']:
+                print(f"Failed to extract llm answer: {llm_answ}")
+                continue
+            result = result['msg']
+            tb_df.loc[tb_df['table_name']==row['table_name'], 'group_name'] = result['group']
+            tb_df.loc[tb_df['table_name']==row['table_name'], 'tags'] = ', '.join(result['tags'])
+            tb_name = row['table_name']
+            if result['group'] not in grpDict:
+                print(f"Group not found: {result['group']}")
+            else:
+                grpDict[result['group']].append(tb_name)
+            
+            for tag in result['tags']:
+                if tag not in tagDict:
+                    print(f"Tag not found: {tag}")
+                else:
+                    tagDict[tag].append(tb_name)
+
+        term_df = self.scma_dfs['terms']
+        term_df['tbs_info'] = term_df['tbs_info'].astype('object')
+        for group in grpDict:
+            term_df.iloc[term_df[term_df['term_name']==group].index, term_df.columns.get_loc('tbs_info')] = ', '.join(grpDict[group])
+        for tag in tagDict:
+            term_df.iloc[term_df[term_df['term_name']==tag].index, term_df.columns.get_loc('tbs_info')] = ', '.join(tagDict[tag])
+
+        self.output_schma(meta_xls)
+        print(f"the grouping and tagging information of each table are saved to {meta_xls}")
+        return
+
+    # 给表的字段分拣到standard field list
+    async def field_enhance(self, meta_xls):
+
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        fd_df = self.scma_dfs['fields']
+        term_df = self.scma_dfs['terms']
+        # 上位词表
+        hypernyms = term_df[term_df['ttype']=='hcol'].to_dict(orient='records')
+
+        # 把filed 分拣到各个上位词下
+        cat_sorter = {hyperItem['term_name']: {} for hyperItem in hypernyms}
+        hypernym_list = '\n'.join([f"{hyperItem['term_name']} : {hyperItem['term_desc']}" for hyperItem in hypernyms])
+        # colnum_name: hcol
+        col_hyper = {}
+        col_list = fd_df['column_name'].tolist()
+        col_hyper = {col: None for col in set(col_list)}
+        print(f"len of uniq_cols:: {len(col_hyper)}")
+
+        batch_size = 5  # 每次处理的field 数量
+        for i in range(0, len(fd_df), batch_size):
+            print(f"Batch: {i}")
+            batch_df = fd_df.iloc[i:i+batch_size]
+            t_col_hyper = await self.get_hcol(batch_df, hypernym_list)
+            col_hyper.update(t_col_hyper)
+        # 如有遗漏的字段，有一次机会
+        missing = [col for col, hcol in col_hyper.items() if hcol is None]
+        batch_df = fd_df[fd_df['column_name'].isin(missing)]
+        if len(batch_df) > 0:
+            t_col_hyper = await self.get_hcol(batch_df, hypernym_list)
+            col_hyper.update(t_col_hyper)
+
+        for column_name, hypernym in col_hyper.items():
+            fd_df.loc[fd_df[fd_df['column_name']==column_name].index, 'hcol'] = hypernym
+            tList = fd_df[fd_df['column_name']==column_name]['table_name'].tolist()
+            print(f"Column: {column_name}, Hypernym: {hypernym}, Tables: {len(tList)}")
+
+            if cat_sorter[hypernym].get('cols') is None:
+                cat_sorter[hypernym]= {'cols': [column_name],
+                                       'tbs': tList}
+            else:
+                cat_sorter[hypernym]['cols'].append(column_name)
+                cat_sorter[hypernym]['tbs'].extend(tList)
+
+        for hypernym,tInfo in cat_sorter.items():
+            if tInfo.get('cols') is None:
+                continue
+            cols = list(set(tInfo['cols']))
+            tList = list(set(tInfo['tbs']))
+            term_df.loc[term_df[term_df['term_name']==hypernym].index, 'tbs_info'] = ', '.join(tList)
+            term_df.loc[term_df[term_df['term_name']==hypernym].index, 'cols_info'] = ', '.join(cols)
+        
+        self.output_schma(meta_xls)
+        print(f"the hypernym information of each field are saved to {meta_xls}")
+
+        return
+    
+    # fields表的col_name 映射至 stand_list
+    async def get_hcol(self, cols_df, stand_list):
+        selected = ['table_name','column_name','column_type','val_lang','examples']
+        tmpl = self.prompter.tasks['field_mapping']
+        col_hyper = {}
+
+        column_info = cols_df[selected].to_markdown(index=False)
+        query = tmpl.format(column_info=column_info, standard_field_list=stand_list)
+        
+        llm_answ = await self.llm.ask_llm(query, '')
+        result = self.ans_extr.output_extr(llm_answ)
+        # track the query
+        # with open('tem.out', 'a', encoding='utf-8') as f:
+        #     f.write(query + '\n')
+        #     f.write(llm_answ + '\n------------\n')
+        
+        if result['status'] == 'failed' or (not isinstance(result['msg'], list)):
+            return {}
+        result = result['msg']
+        for item in result:
+            if 'column_name' not in item or 'mapped_field' not in item:
+                print(f"Failed to get column name or mapped_field: {item}")
+                continue
+            col_name = item.get('column_name')
+            hcol_name = item.get('mapped_field')
+            
+            # 可能存在不同表的相同列名，在other_cols中已经存在，col_name与表名无关，且最后一个hypernym有效
+            col_hyper[col_name] = hcol_name
+            if cols_df[cols_df['column_name']==col_name].empty:
+                print(f"Column not found: {col_name}")
+                continue
+        
+        return col_hyper
+    
+    # 生成表和字段的描述
+    async def table_description(self, meta_xls):
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        fd_df = self.scma_dfs['fields']
+        fd_df['col_desc'] = fd_df['col_desc'].astype('object')
+        tb_df = self.scma_dfs['tables']
+        tb_df['tb_desc'] = tb_df['tb_desc'].astype('object')
+        tmpl = self.prompter.tasks['column_description']
+        hcol_info = []
+        for _, row in tb_df.iterrows():
+            tb_name = row['table_name']
+            print(f"Table: {tb_name}")
+            tdf = fd_df[fd_df['table_name']==tb_name]
+            hcol_info = tdf['hcol'].tolist()
+            tdf = tdf[['column_name', 'column_type', 'val_lang', 'examples']]
+            tmd = tdf.to_markdown(index=False)
+            tb_info = f"table name:{tb_name}\ncolumns and samples:\n{tmd}"
+            query = tmpl.format(tb_info=tb_info,chat_lang=self.lang)
+            llm_answ = await self.llm.ask_llm(query, '')
+            result = self.ans_extr.output_extr(llm_answ)
+            if result['status'] == 'failed':
+                print(f"Failed to extract llm answer: {llm_answ}")
+                continue
+            result = result['msg']
+            if isinstance(result, str):
+                print(f"Failed to get column name or description: {result}")
+                continue
+            tb_desc = result.get('table_description')
+            if tb_desc is None:
+                print(f"Failed to get table description: {result}")
+                continue
+            tb_df.loc[tb_df['table_name'] == tb_name, 'tb_desc'] = tb_desc
+            hcol_info = list(set(hcol_info))  # 去重
+            tb_df.loc[tb_df['table_name'] == tb_name, 'hcols_info'] = ', '.join(hcol_info)
+            
+            result = result.get('columns')
+            if result is None:
+                print(f"Failed to get columns: {result}")
+                continue
+            for item in result:
+                if isinstance(item, str):
+                    print(f"Failed to get column name or description: {item}")
+                    continue
+                col_name = item.get('column_name')
+                col_desc = item.get('description')
+                if col_name is None or col_desc is None:
+                    print(f"Failed to get column name or description: {item}")
+                    continue
+                fd_df.loc[(fd_df['column_name'] == col_name) & (fd_df['table_name'] == tb_name), 'col_desc'] = col_desc        
+        self.output_schma(meta_xls)
+        print(f"the description of each field are saved to {meta_xls}")
+        return
+    
+    # 通过LLM定义tables的 group list，tag list
+    async def define_groups_tags(self, meta_xls):
+
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        # 生成table grouping
+        tb_df = self.scma_dfs['tables']
+        pj_df = self.scma_dfs['database']
+        db_name = pj_df['database_name'][0] #表的第一行
+        # 采用随机采样，处理表个数很多时情况
+        table_count = tb_df.shape[0]
+        one_permutation = random.sample(range(table_count), table_count)
+        infoList = []
+        tb_info = []
+        allLen = 0
+        for i in range(table_count):
+            row = tb_df.iloc[one_permutation[i]]
+            tStr = f"table name:{row['table_name']}\ncolumn names: {row['cols_info']}"
+            tb_info.append(tStr)
+            allLen += len(tStr)
+            if allLen > const.D_MAX_PROMPT_LEN:
+                infoList.append({'allLen':allLen, 'tb_info':'\n---------\n'.join(tb_info)})
+                tb_info = []
+                allLen = 0
+        if allLen > 0:
+            infoList.append({'allLen':allLen, 'tb_info':'\n---------\n'.join(tb_info)})
+
+        tmpl = self.prompter.tasks['db_glossary']
+        aswList= []
+        for tItem in infoList:
+            query = tmpl.format(db_name=db_name, tables_info=tItem['tb_info'])
+            llm_answ = await self.llm.ask_llm(query, '')
+            # Track the query
+            # with open('tem.out', 'a', encoding='utf-8') as f:
+            #     f.write(query + '\n')
+            #     f.write(llm_answ + '\n------------\n')
+
+            result = self.ans_extr.output_extr(llm_answ)
+            if result['status'] == 'failed':
+                print(f"Failed to extract llm answer: {llm_answ}")
+            else:
+                aswList.append(result['msg'])
+        
+        # 生成 group list and tag list
+        groups,tags, tables = [],[],[]
+        for asw in aswList:
+            if not isinstance(asw, dict) or 'groups' not in asw:
+                print(f"Failed to get glossary: {asw}")
+                continue
+            groups.extend(asw['groups'])
+            tags.extend(asw['tags'])
+            tables.extend(asw['tables'])
+        
+        groupInfo, tagInfo = {}, {}
+        for group in groups:
+            groupInfo[group['group_name']] = group['description']   
+        for tag in tags:
+            tagInfo[tag['tag_name']] = tag['description']
+
+        groupInfo = [f"{name}: {desc}" for name, desc in groupInfo.items()]
+        tagInfo = [f"{name}: {desc}" for name, desc in tagInfo.items()]
+        print('len of groupInfo:', len(groupInfo))
+        print('len of tagInfo:', len(tagInfo))
+        # 生成group list and tag list
+        groups = await self.term_merging(self.MAX_GROUP, '\n'.join(groupInfo))
+        tags = await self.term_merging(self.MAX_TAG, '\n'.join(tagInfo))
+        
+        if groups is None or tags is None:
+            print("Failed to generate group and tag list")
+            return
+        
+        gt_df = pd.DataFrame(groups, columns=['canonical_term','description'])
+        gt_df['ttype'] = 'group'
+        tag_df = pd.DataFrame(tags, columns=['canonical_term','description'])
+        tag_df['ttype'] = 'tag'
+        print(tag_df.to_dict(orient='records'))
+        
+        gt_df = pd.concat([gt_df, tag_df], ignore_index=True)
+        gt_df.rename(columns={'canonical_term':'term_name','description':'term_desc'}, inplace=True)
+        term_df = self.scma_dfs['terms']
+        term_df['term_name'] = gt_df['term_name']
+        term_df.update(gt_df[['term_desc', 'ttype']], overwrite=True)
+        
+        self.output_schma(meta_xls)
+        print(f"Group and tag list are saved to {meta_xls}")
+        return
+    
+    # catInfo 为group和tag的描述信息, 包含 term_name, ndescription(optional)
+    async def term_merging(self, max_cats, catInfo):
+        # 生成group list and tag list
+        tmpl = self.prompter.tasks['term_merging']
+        query = tmpl.format(max_cats = max_cats, catInfo=catInfo)
+        llm_answ = await self.llm.ask_llm(query, '')
+        result = self.ans_extr.output_extr(llm_answ)
+        # track the query
+        # with open('tem.out', 'a', encoding='utf-8') as f:
+        #     f.write(query + '\n')
+        #     f.write(llm_answ + '\n------------\n')
+
+        if result['status'] != 'failed':
+            return result['msg']
+        else:
+            return None
+        
+    # 字段名合并
+    # 考虑多表情况，分为多组合并生成初步标准名，最后再term merging
+    # 最终形成字段标准名作为上位词 hcol
+    async def field_consolidation(self, meta_xls):
+
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        fd_df = self.scma_dfs['fields']
+        term_df = self.scma_dfs['terms']
+        tag_df = term_df[term_df['ttype']=='tag']
+        # 字段名分批次ask llm， 考虑超多表情况
+        batch = []
+        allLen = 0
+        for _, row in tag_df.iterrows():
+            fieldInfo = []
+            allLen = 0
+            if row['tbs_info'] == '' or pd.isna(row['tbs_info']):
+                continue
+            related_tb = row['tbs_info'].split(',')
+            print(f"Tag: {row['term_name']}, Related tables: {len(related_tb)}")
+            for tb_name in related_tb:
+                fieldInfo.append(f"table name:{tb_name}")
+                tdf = fd_df[fd_df['table_name']==tb_name]
+                tdf = tdf[['column_name', 'column_type', 'val_lang', 'examples']]
+                tmd = tdf.to_markdown(index=False, tablefmt="pipe")
+                fieldInfo.append(tmd)
+                allLen += len(tmd)
+                if allLen > const.D_MAX_PROMPT_LEN:
+                    batch.append(fieldInfo)
+                    fieldInfo = []
+                    allLen = 0
+            if allLen > 0:
+                batch.append(fieldInfo)
+        
+        print(f"len of batch: {len(batch)}")
+        # 字段标准化
+        tmpl = self.prompter.tasks['field_consolidation']
+        hypernym = []
+        for b in batch:
+            query = tmpl.format(column_info='\n'.join(b))
+            llm_answ = await self.llm.ask_llm(query, '')
+            # Track the query
+            # with open('tem.out', 'a', encoding='utf-8') as f:
+            #     f.write(query + '\n')
+            #     f.write(llm_answ + '\n------------\n')
+
+            result = self.ans_extr.output_extr(llm_answ)
+            if result['status'] == 'failed':
+                print(f"Failed to extract llm answer: {llm_answ}")
+                continue
+            result = result['msg']
+            tList = [grp['canonical_field'] for grp in result]
+            hypernym.extend(tList)
+        hypernym = list(set(hypernym))
+        print(f"len of hypernym is {len(hypernym)}")
+        colInfo = [f"term name: {term}" for term in hypernym]
+        hyperterms = await self.term_merging(self.MAX_HYPERFIELD, '\n'.join(colInfo))
+        if hyperterms is None:
+            print("Failed to generate hypernym list")
+            return
+        print(f"len of standard hyperterms is {len(hyperterms)}")
+        hyper_df = pd.DataFrame(hyperterms, columns=['canonical_term','description'])
+        hyper_df.rename(columns={'canonical_term':'term_name','description':'term_desc'}, inplace=True)
+        hyper_df['ttype'] = 'hcol'  # hypernym column
+        term_df = self.scma_dfs['terms']
+        self.scma_dfs['terms'] = pd.concat([term_df, hyper_df], ignore_index=True)
+
+        self.output_schma(meta_xls)
+        return
+
+    # db全景描述及tbs_info
+    async def db_description(self, meta_xls):
+        self.scma_dfs = pd.read_excel(meta_xls, sheet_name=None)
+        sample_size = 500       # 如表或字段过多，只随机取500个
+        db_df = self.scma_dfs['database']      
+        db_name = db_df['database_name'][0]
+        term_df = self.scma_dfs['terms']
+        gp_df = term_df[term_df['ttype']=='group']
+        
+        col_df = self.scma_dfs['fields']
+        sample_size = min(sample_size, len(col_df['column_name']))
+        col_Info = col_df['column_name'].sample(n=sample_size).tolist()
+
+        grp_Info = [grp['term_name'] for _, grp in gp_df.iterrows()]
+
+        dbInfo = [f'database name: {db_name}']
+        dbInfo.append('Group name list:')
+        dbInfo.append(','.join(grp_Info))
+        dbInfo.append('Sample field list:')
+        dbInfo.append(','.join(col_Info))
+
+        dbInfo = '\n'.join(dbInfo)
+        print(f"len of dbInfo: {len(dbInfo)}")
+        tmpl = self.prompter.tasks['db_description']
+        query = tmpl.format(db_name=db_name,db_info=dbInfo,chat_lang=self.lang)
+        llm_answ = await self.llm.ask_llm(query, '')
+        # Track the query
+        # with open('tem.out', 'a', encoding='utf-8') as f:
+        #     f.write(query + '\n')
+        #     f.write(llm_answ + '\n------------\n')
+
+        result = self.ans_extr.output_extr(llm_answ)
+        if result['status'] == 'failed':
+            print(f"Failed to extract llm answer: {llm_answ}")
+            return
+        result = result['msg']
+        db_df['db_desc'] = db_df['db_desc'].astype('object')
+        db_df.loc[0, 'db_desc'] = result['description']
+        db_df['domain'] = db_df['domain'].astype('object')
+        db_df.loc[0, 'domain'] = result['domain']
+
+        self.output_schma(meta_xls)
+        print(f"Database description is saved to {meta_xls}")
+        return
+
+    def output_schma(self,xls_name):
+        writer = pd.ExcelWriter(f'{xls_name}')
+        for tb_name, df in self.scma_dfs.items():
+            df = df.fillna('')
+            tdict = df.to_dict(orient='records')
+            print(f"Table: {tb_name}, Rows: {len(tdict)}")
+            df.to_excel(writer, sheet_name=f'{tb_name}', index=False)
+        writer.close()
+        return xls_name
+
+# Example usage
+if __name__ == '__main__':
+
+    from zebura_core.placeholder import make_dbServer
+
+    s_name = 'Mysql1'
+    dbServer = make_dbServer(s_name)
+    dbServer['db_name'] = 'ebook'
+    # 创建存放文件的目录
+    out_path=f'{const.S_TRAINING_PATH}/{dbServer["db_name"]}'
+    wk_dir = os.getcwd()
+    directory = os.path.join(wk_dir,out_path)
+    if not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+    xls_name = os.path.join(directory, f'{const.S_METADATA_FILE}')  
+    
+    mg = ScmaGen(dbServer,'Chinese')
+    #1. 从数据库中读取所有表的schema信息
+    mg.gen_db_info(xls_name)
+    # 2. 生成table grouping
+    asyncio.run(mg.define_groups_tags(xls_name))
+    asyncio.run(mg.tb_enhance(xls_name))
+    # 3. 生成field 上位词
+    asyncio.run(mg.field_consolidation(xls_name))
+    asyncio.run(mg.field_enhance(xls_name))
+    # 4. 生成 table, db描述
+    asyncio.run(mg.table_description(xls_name))
+    asyncio.run(mg.db_description(xls_name))
+
+    print('done')

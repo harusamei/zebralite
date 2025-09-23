@@ -1,0 +1,721 @@
+///////////////////////////////////////
+// The BASE prompt for all languages
+// format：<TASK: xxx> ... </TASK>
+// ignore lines starting with '//'
+////////////////////////////////////////
+
+// 给表和列名生成描述
+<TASK:column_description>
+
+### Task Description:
+Given a database table's column information, generate a brief description of the table and each column using {chat_lang}.
+
+### Requirements:
+- The description should be brief, using a short sentence or keywords to convey the column's function, purpose, and aliases. 
+- Output the results in JSON format, including the column name and its corresponding description.  
+
+### Input:
+{tb_info}
+
+### Output:
+```json
+{{
+  "table_description": "A brief summary of the table's purpose and content.",
+  "columns": [
+    {{
+      "column_name": "column1",
+      "description": "description1"
+    }},
+    {{
+      "column_name": "column2",
+      "description": "description2"
+    }}
+  ]
+}}  
+
+</TASK>
+
+// 数据治理中的元数据标准化，字段合并
+<TASK: field_consolidation>
+### Task Description:
+你是一名数据治理与数据库架构专家，擅长对数据库字段进行语义分析与标准化。  
+任务是：根据提供的数据库表字段名及其 schema 信息，识别语义相同或相近的字段，并将它们合并为统一的标准字段表。  
+
+### 规则：
+1. 按语义相似性分组，将同义、缩写、不同命名风格（下划线命名、驼峰命名等）但含义相同或高度相近的字段合并为一个标准字段。
+2. 每组仅保留一个标准字段名（选择最常用、最清晰、最简洁的命名）。
+3. 合并时需参考 schema 中的数据类型、长度、约束等信息，避免将语义不同的字段错误合并。
+4. 输出时必须覆盖所有输入字段（合并后作为同义词保留）。
+5. 不创造新的字段含义，仅基于现有信息合并
+
+### Input:
+{column_info}
+
+### Output:
+```json
+[
+  {{
+      "canonical_field": "name1",
+      "synonyms": ["column1", "column2", "column3"]
+  }},
+  {{
+      "canonical_field": "name2",
+      "synonyms": ["column4", "column5"]
+  }}
+]
+```
+</TASK>
+
+// 存在一个data dictionry/Standard Field List 情况下，将fieldname mapping 到标准字段名表
+// 标准字段映射
+<TASK:field_mapping>
+You are a data governance and database architecture expert. Your task is to map database columns to a given Standard Field List.
+
+### Rules:
+1. Using the provided Standard Field List and the metadata for each column (column name, table name, data type, and sample values), map each column to the most appropriate standard field.
+2. When matching, consider:
+   - Text similarity of column names (including abbreviations, underscores, camelCase variations, etc.)
+   - Data type (e.g., text, int, date)
+   - Meaning and format of sample values
+   - Context from the table name
+3. If no exact match exists, choose the closest semantically relevant standard field.
+4. Do not create new standard field names — only select from the provided Standard Field List.
+5. All input columns must be mapped to exactly one standard field.
+6. Output only the JSON mapping results, with no additional explanation.
+
+### Input:
+- Standard Field List:
+{standard_field_list}
+
+- Columns to Map:
+{column_info}
+
+### Output:
+Return a JSON array in the following format:
+```json
+[
+    {{
+        "table_name": "Original table name",
+        "column_name": "Original column name",
+        "mapped_field": "Mapped standard field name"
+    }}
+]
+```
+</TASK>
+
+
+// 生成database的描述
+<TASK:db_description>
+### Task Description:
+
+You are a database expert. I will provide you with the following input information:
+
+- Database name: the given name of the database.
+- Group name list: represents logical groupings or themes of tables in the database.
+- Sample field list: a set of example fields from the tables (these fields are randomly sampled and may not be complete).
+
+Based on this information:
+
+- Use the provided database name directly.
+- Identify the domain/application area of the database (e.g., finance, healthcare, e-commerce, social media, IoT, etc.).
+- Write a brief description summarizing what kind of data the database stores and its main functions/use cases in {chat_lang}.
+
+The output must be in strict JSON format with no extra explanations.
+
+### Input:
+{db_info}
+
+### Output:
+```json
+{{
+  "database_name": "database_name",
+  "domain": "database_domain",
+  "description": "A brief description of the database's main functions and application scenarios."
+}}
+```
+</TASK>
+
+// follow-ups questions for the database
+<TASK:fups4db>
+### Task Description:
+Generate follow-up questions and their corresponding SQL queries based on a given SQL query, database table description, and sample records. The questions should be clear, written in natural language, and explore related aspects of the query or database structure.
+
+### Requirements:
+1. Generate follow-up questions in {chat_lang}.
+2. Output the results in JSON format, strictly following the provided output example.
+
+### Input:
+- **Table description:**
+  {tb_prompt}
+
+- **Sample records:**
+  {sample_records}
+
+- **Initial SQL Query:**
+  {sql_query}
+
+- **Query result:**
+  {sql_result}
+
+### Output Example:
+
+```json
+[
+  {{
+    "question": question_text1,
+    "sql": sql_statement1
+  }},
+  {{
+    "question": question_text2,
+    "sql": sql_statement2
+  }},
+  {{
+    "question": question_text3,
+    "sql": sql
+  }}
+]
+```
+</TASK>
+
+// Conversational Query Rewriting
+<TASK:rewrite>
+You are an assistant that processes multi-turn conversations and classifies the user’s latest message.
+Your task is to determine the intent and decide whether to rewrite or directly reply.
+
+### Rules
+
+1. Intent categories:
+
+  - end: The user wants to end the conversation (e.g., “谢谢”, “再见”).
+
+    Action: Output only the intent, directly say bye to the user.
+
+  - confirm: The user questions or asks for confirmation about the previous reply (e.g., “Are you sure?”, “Is this true?”).
+
+    Action: Output only the intent, and directly reply to the user based on conversation history in {chat_lang}, without rewriting into a standalone query.
+
+  - continue: The user continues the conversation and asks for more information (e.g., “Then who are the main characters in this novel?”).
+
+    Action: Rewrite the user’s message into a standalone query that does not depend on previous context in {chat_lang}.
+
+2. Output strictly in JSON format, without any additional text or explanation.
+
+### Input:
+The conversation is provided as alternating turns:
+{history}  
+latest user query: {last_query}
+
+### Output Format (JSON):
+```json
+{{
+  "intent": "<end|confirm|continue>",
+  "rewritten": "<standalone query or null>",
+  "direct_reply": "<reply to user or null>"
+}}
+```
+</TASK>
+
+// list some sapplication scenarios for this database
+<TASK:scn4db>
+### Task Description:
+Given a database schema, list application scenarios where this database can be used to generate reports, along with the target user groups for these reports. The scenarios should cover diverse application areas and user needs, showcasing the database's versatility and practical value.
+
+### Requirements:
+1. Identify at least {num_scenarios} distinct application scenarios or use cases.
+2. Output the result in JSON format, strictly following the provided output format.
+
+### Input:
+- **Table description:**
+  {tb_prompt}
+
+- **Sample records:**
+  {sample_records}
+
+### Output format:
+```json
+[
+  {{
+    "scenario": "scenario_text1",
+    "description": "description_text1",
+    "target_users": ["userA", "userB"]
+  }},
+  {{
+    "scenario": "scenario_text2",
+    "description": "description_text2",
+    "target_users": ["userC", "userD", "userE"]
+  }}
+]
+```
+
+</TASK>
+
+// analyse the complex SQL
+<TASK:sql_breakdown>
+### Task Description:
+Analyze the input SQL statement and provide a detailed breakdown of the tables, columns, and values used in the SQL statement.
+
+1. **Tables:** List all the tables in the SQL statement, including their aliases if they exist.
+2. **Columns:** List all the columns used in the SQL statement, along with their corresponding tables. Include the column aliases if they exist.
+3. **Values:** Extract all values from the WHERE clause, along with the columns and tables they are associated with.
+
+### Notes:
+- Please strictly follow the JSON format of the below output example.
+- Replace all single quotes (') with double quotes (") in the values within the SQL statement.
+=========================
+
+
+```json
+{{ 
+  "tables": [  
+    {{"name": "table1", "alias": "t1"}},  
+    {{"name": "table2", "alias": "t2"}}  
+  ],  
+  "columns": [  
+    {{"name": "column1", "table": "table1", "alias": "c1"}},  
+    {{"name": "column2", "table": "table1"}},  
+    {{"name": "column3", "table": "table2"}}  
+  ],  
+  "values": [  
+    {{"value": number1, "column": "column1", "table": "table1"}},  
+    {{"value": "string1", "column": "column2", "table": "table2"}}  
+  ]  
+}}
+
+```
+=========================
+### Input SQL Statement:
+{sql_statement}
+
+### Output:
+
+</TASK>
+
+// 改写SQL使输出结果包含更多详情信息
+<TASK:sql_details>
+## Task: Optimize SQL Query for Enhanced Data Details
+
+### Objective
+Rewrite the given SQL query to include more comprehensive data, ensuring the results are intuitive and informative.
+
+### Guidelines:
+1. **Expand Data**: 
+    - Ensure fields from the WHERE clause are included in the SELECT clause. 
+    - When using aggregate functions (e.g., COUNT, SUM), use the GROUP BY clause for accurate results.
+   
+2. **Improve Clarity**: 
+    - Use aliases for clear column names.
+    - Format numeric or date fields as needed.
+    - Ensure key details are easily accessible at a glance.
+
+3. **Output**: The output must be an SQL query that includes the enhanced data.
+
+### Input Example (Original SQL Query):
+SELECT customer_id, order_date, total_amount
+FROM orders
+WHERE order_date > '2023-01-01';
+
+### Output Example (Rewritten SQL Query with Additional Details):
+SELECT order_id AS "Order ID", 
+       order_date AS "Order Date", 
+       total_amount AS "Total Amount", 
+       customer_name AS "Customer Name"
+FROM orders
+WHERE order_date > '2023-01-01'
+ORDER BY order_date DESC;
+
+======================
+
+### Database schema:
+{dbSchema}
+
+### Input Original SQL Query:
+{sql_statement}
+
+### Output Rewritten SQL Query:
+</TASK>
+
+// database-augmented generation
+// created in 2025-08-28
+<TASK:db_enhance>
+
+You are a **Library Assistant**.  
+The user has asked a question related to the local database. You have already executed an SQL query and obtained results. Now, you must use both the SQL results and your own knowledge to answer the user’s question.
+
+### Instructions
+1. Use the SQL results as supporting evidence.  
+2. Combine them with your knowledge when answering.  
+   - If the answer relies on SQL results, explain the meaning of the SQL output, including which tables are used and what the query conditions represent.  
+   - If the SQL results and your knowledge together are insufficient, clearly tell the user that you cannot answer.  
+3. Suggest follow-up questions if appropriate.  
+4. When referencing SQL results, never output raw data. Always use **{Temp_table}** as a placeholder.  
+
+### Input
+- User question: {question}  
+- Database schema: {db_info}  
+- SQL executed: {sql}  
+- SQL result (first N rows if too many): {sql_result}  
+
+### Output (JSON):
+```json
+{{
+  "reply": "Answer and explanation if any, in {chat_lang}",
+  "followups": ["Follow-up 1", "Follow-up 2"] // optional, can be empty
+}}
+```
+</TASK>
+
+// sql syntax correction
+// update 2025-09-16
+<TASK: sql_correct>
+You are a SQL Fixer.
+### Your task is to take as input:
+
+- SQL statement
+{sql}
+- The database type
+{db_type}
+- Table schema (tables, columns, and data types)
+ {tb_info}
+- The error code and error message returned by explain SQL.
+{error_msg}
+
+### Goal:
+- Detect and correct syntax errors in the SQL statement according to the database type and schema.  
+- If the error indicates a missing or unknown table/column, replace it with the closest match from the provided schema (by spelling or semantic similarity).  
+- If correction is possible, return the fixed SQL.  
+- If not, return `"uncorrectable"`. 
+
+### Output format:
+```json
+{{
+  "type": "corrected" | "uncorrectable",
+  "sql": "corrected SQL if any, empty string if uncorrectable"
+}}
+```
+</TASK>
+
+// focus on fixing value representation mismatches in SQL
+// update 2025-09-16
+<TASK:sql_revise>
+You are an NL2SQL reviewer. Check the SQL generated from a natural language question and fix value representation mismatches, including:
+
+**Type mismatches** – e.g., 'yes'/'no' → BOOLEAN TRUE/FALSE, numeric vs. string inconsistencies.  
+**Cross-language mismatches** – detect when the query values are in a different language from the schema/data values.  
+  * Compare the query value with column names, known value domains, and table schema context.  
+  * Use transliteration or translation if needed, e.g., Chinese '上海' → English 'Shanghai'.  
+  * Consider synonyms or aliases across languages (e.g., 'Deutschland' → 'Germany').  
+**Unmappable values** – if a value cannot be reliably mapped to the schema/domain, do not generate SQL, flag it.
+
+### Rules:
+- Keep SQL logic unchanged unless needed for value/type correction. 
+- When making corrections, only adjust values (strings, constants), not table or column names, unless the mismatch is evident.  
+- Output ONLY a JSON object in the below output format
+
+### Inputs:
+- Natural language question: {question}  
+- SQL query: {sql}  
+- Table schema: 
+{tb_info}
+
+### Output format:
+```json
+{{
+  "type": "corrected" | "correct" | "uncorrectable",
+  "sql": "revised SQL if any, empty string if uncorrectable or unchanged if correct",
+  "reasoning": "why revised or what value is problematic"
+}}
+```
+</TASK>
+
+// generate SQL query based on natural language input and database schema
+<TASK:nl_to_sql>  
+You are an intelligent SQL query assistant.  
+Your job is to convert a user’s natural language question into an executable SQL query, using the given database schema.  
+
+### Instructions:
+
+1. **Understand the query**  
+   - Identify intent and map it to the correct tables/fields.  
+   - If the query contains vague terms (e.g., “recent”, “reasonable price”, “big clients”) or domain-specific language that cannot be directly mapped, ask the user for clarification in {chat_lang} before generating SQL.  
+
+2. **Write SQL**  
+   - Once clarified, generate a valid SQL query strictly based on the schema.  
+   - Ensure correct syntax and accurate filtering logic.  
+   - Briefly explain in {chat_lang} which tables are used and what the conditions mean.
+
+### Notes:
+- Do not show reasoning steps.  
+- Output only the JSON in the specified format.  
+
+### Input:
+- **User Query:** 
+{question}  
+
+- **Database schema** (tables and fields): 
+
+{tbs_info}  
+
+
+### Output (JSON):
+```json
+{{
+  "type": "sql | unclear", // indicates whether the output is a SQL query or a clarification request
+  "reply": "Generated SQL query, or a clarification request in {chat_lang}",
+  "tables": ["table1", "table2", "..."]   // array of table names, empty if not applicable
+  "explanation": "Explanation in {chat_lang}" // tables are used and what the conditions mean
+}}
+```
+</TASK>
+
+// analyze query, identify chat or db query
+// update in 2025-08-25
+<TASK:query_relevance>
+You are a {sys_role}. Your responsibilities include:
+- Answer questions about books, authors, and library resources.
+- 执行用户直接给出的SQL查询，并解释SQL的含义。
+- Support users in searching and locating information efficiently.
+
+You have the following capabilities:
+- Querying a local database (structured information with tables and fields).
+- Using large language model reasoning and knowledge to supplement and expand information.
+
+### Your Current Tasks:
+
+1. **Query Analysis**  
+   - First, check whether the user’s request is relevant to your responsibilities.  
+   - If irrelevant, politely explain that you are not responsible for this type of task. Set `"relevance": "no"`.   
+   - If the user’s intent is unclear, ask clarifying questions. Set `"relevance": "unclear"`. 
+
+2. **Relevance Determination**  
+   - If the request is relevant but does **not** require the local database, answer directly using LLM reasoning in **{chat_lang}**.  
+     Set `"relevance": "Yes and LLM only"`.  
+   - If the request is relevant and **does** require the local database, provide:  
+     - `new_question`: a natural language query (not SQL) in {chat_lang}, describing precisely what information should be retrieved from the database.  
+     - `explain_purpose`: a short explanation in {chat_lang}, describing how the results of `new_question` will help answer the user’s original question.  
+     Set `"relevance": "Yes and DB query"`. In this case, leave `"reply"` empty.
+  - if the user directly provides an SQL query, 判断查询的tables和字段是否在schema中，若不在则relevance设为no，若在则设为Yes and DB query
+
+### Input:
+- Database description:  
+  {db_info}
+
+- Tables and fields descriptions:  
+  {tbs_info}
+
+- User’s natural language query:  
+  {question}
+
+### Output (JSON):
+```json
+{{
+  "relevance": "no / unclear / Yes and LLM only / Yes and DB query",
+  "reply": "If 'Yes and LLM only', provide the LLM-generated answer in {chat_lang}. If 'No' or 'Unclear', reply in {chat_lang} as instructed.",
+  "new_question": "If 'Yes and DB query', provide the natural language query in {chat_lang}.",
+  "explain_purpose": "If 'Yes and DB query', explain in {chat_lang} how the database results help answer the original question."
+}}
+
+```
+</TASK>
+
+// 根据以有的组和标签体系，对一个表进行分组和打标签
+<TASK:tb_classification>
+### Task Description  
+Use the list of group names and the list of tag names to group the database table and assign tags.
+
+### Input
+- List of group names:
+{group_info} 
+- List of tag names: 
+{tag_info}  
+- Database Table: 
+{table_info}  
+
+### Requirements 
+- Each database table must be assigned to one group and at least one tag.
+- The output must strictly follow the example format.
+
+### Output example:
+```json
+{{
+    "table_name": "table_name",
+    "group": "group_name",
+    "tags": ["tag1", "tag2",...]
+}}
+```
+</TASK>
+
+// glossary for grouping and tagging of database tables
+<TASK:db_glossary>
+
+### Task Description:
+You are provided with a database named '{db_name}' and several tables within the database. Each table consists of its name and a list of fields. Your task is to construct a glossary for both groups and tags based on this information. Additionally, you need to assign each table to a specific group and associate it with multiple tags.
+
+### Database Table Information:
+{tables_info}
+
+### Requirements:
+- Each table should belong to one group only, but can have multiple tags.
+- The output must strictly follow the example format.
+
+### Output example:
+```json
+{{
+  "tables": [
+    {{
+      "table_name": "table1",
+      "group": "group1",
+      "tags": ["tag1", "tag2"]
+    }},
+    {{
+      "table_name": "table2",
+      "group": "group2",
+      "tags": ["tag3", "tag4"]
+    }}
+  ],
+  "groups": [
+    {{
+      "group_name": "group1",
+      "description": "Description of group 1."
+    }},
+    {{
+      "group_name": "group2",
+      "description": "Description of group 2."
+    }}
+  ],
+  "tags": [
+    {{
+      "tag_name": "tag1",
+      "description": "Description of tag 1."
+    }},
+    {{
+      "tag_name": "tag2",
+      "description": "Description of tag 2."
+    }}
+  ]
+}}
+
+```
+</TASK>
+
+//
+<TASK:term_expansion>
+### Task Description:
+Generate term expansions for the given terms based on the table below. Use methods such as synonyms, related terms, and translations to enrich the vocabulary while ensuring relevance to the specified category.
+
+### Requirements:
+- Expand terms using synonyms, related terms, and translations.
+- Ensure the generated JSON strictly follows the provided output structure.
+- Keep expansions relevant to the term’s specified category and language.
+
+**Input Example Table:**  
+
+| Term       | Category       | Output Language |  
+|:-----------|:---------------|:----------------|  
+| apple      | Brand          | English         |  
+| mouse      | Product_name   | Chinese         |  
+| innovation | Business       | Japanese        |  
+
+
+**Expected Output:**  
+
+```json
+[
+  {{
+    "term": "apple",
+    "category": "Brand",
+    "language": "English",
+    "expansions": ["MacBook", "iPhone", "iPad", "Apple Inc.", "AirPods", "Apple Watch"]
+  }},
+  {{
+    "term": "mouse",
+    "category": "Product_name",
+    "language": "Chinese",
+    "expansions": ["鼠标", "无线鼠标", "光学鼠标", "游戏鼠标", "蓝牙鼠标"]
+  }},
+  {{
+    "term": "innovation",
+    "category": "Business",
+    "language": "Japanese",
+    "expansions": ["イノベーション", "技術革新", "創意", "発明", "新興ビジネス"]
+  }}
+]
+
+```
+**Input Table:** 
+{term_table}
+
+**Output:**
+
+</TASK>
+
+// term deduplication and clustering, semantic term merging
+<TASK: term_merging>
+You are a terminology normalization expert. Your task is to analyze the provided term list, identify semantically identical or similar terms, and merge them into a unified canonical terminology list.
+
+### Rules:
+1. Group semantically identical or similar terms together (including synonyms, abbreviations, and variants).
+2. For each group, keep only ONE canonical form — choose the most common, clear, and concise version.
+3. The total number of canonical terms must not exceed {max_cats}.
+4. If the initial merge results in more than {max_cats} canonical terms, further merge semantically similar canonical terms until the total is within the limit.
+5. Include **all input terms** in the output (as synonyms if merged), and do not invent new meanings.
+6. Provide a **short description** for each canonical term based on its meaning in the input list.
+
+### Input:
+- Term List:
+{catInfo}
+
+### Output:
+Return a JSON array in the following format:
+```json
+[
+    {{
+        "canonical_term": "Canonical_term1",
+        "synonyms": [list of synonyms from the input],
+        "description": "" // Description for Canonical_term1
+    }},
+    {{
+        "canonical_term": "Canonical_term2",
+        "synonyms": [list of synonyms from the input],
+        "description": "" // Description for Canonical_term2
+    }}
+]
+```
+</TASK>
+
+<TASK:translation>
+### Task Description:
+Translate the following JSON object into English. The JSON contains a text and its language. Translate only the text to {trgt_lang} and return the result in JSON format
+### Requirements:
+Please strictly follow the JSON format of the provided output example.
+
+### Input Example:
+[
+  {{
+    "text": "你好，世界",
+    "language": "Chinese"
+  }},
+  {{
+    "text": "Bonjour le monde",
+    "language": "French"
+  }}
+]
+### Output Example:
+
+```json
+[
+  {{
+    "source": "你好，世界",
+    "target": "Hello, world"
+  }},
+  {{
+    "source": "Bonjour le monde",
+    "target": "Hello, world"
+  }}
+]
+```
+### Input:
+{input}
+
+### Output:
+</TASK>
+
