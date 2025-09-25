@@ -146,3 +146,6 @@ INFO - Backing off send_request(...) for 441.0s (requests.exceptions.ConnectionE
 ERROR - Giving up send_request(...) after 11 tries (requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)))
 ERROR - error uploading: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
 INFO - Backing off send_request(...) for 0.5s (requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+INFO - Backing off __post(...) for 0.4s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
+INFO - Backing off __post(...) for 1.0s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
+INFO - Backing off __post(...) for 0.0s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))

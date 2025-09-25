@@ -70,7 +70,12 @@ async def ask_zebura(key,cont):
             aws = {'status': 'failed','type':'error','reply':f'ERR: {e}'}
         st.session_state.messages.append(req)
         st.session_state.messages.append(aws)
-        st.session_state['show_sql'] = aws.get('sql','')
+        
+        sql = aws.get('sql','')
+        st.session_state['show_sql'] = sql
+        st.session_state['explanation'] = aws.get('explanation','')
+        executor = st.session_state['executor']
+        st.session_state['sql_result'] = executor.sql2df(sql)
 
 @st.fragment()
 def create_newchat():
@@ -80,16 +85,11 @@ def create_newchat():
     st.session_state.messages = []
     st.session_state.request = None
 
+
 def show_talk(cont=None):
     if len(st.session_state.messages) == 0:
         st.write('no chat yet')
         return
-    
-    aws = st.session_state.messages[-1].get('zebura')
-    if isinstance(aws,dict) and 'sql' in aws.keys():
-        if aws['status'] == 'succ' and aws['type'] == 'sql':
-            st.session_state['show_sql'] = aws['sql']
-            print(f'show sql: {aws["sql"]}')
 
     with cont:
         for mes in st.session_state.messages[-5:]:
@@ -103,38 +103,53 @@ def show_talk(cont=None):
 @st.cache_resource
 def get_pyg_renderer(sql) -> "StreamlitRenderer":
     
-    executor = st.session_state['executor']
-    print('get_pyg_renderer',sql)
-    df = executor.sql2df(sql)
-    # If you want to use feature of saving chart config, set `spec_io_mode="rw"`
+    df = st.session_state.get('sql_result',None)
     if not df.empty:
+        print('get a new pyg renderer')
         return StreamlitRenderer(df, kernel_computation=True, spec_io_mode="rw")
-    return None
+    else:
+        return None
 
 @st.fragment()
 def render_answer(answ=None):
-    st.markdown(':tulip::cherry_blossom::rose::hibiscus::sunflower::blossom:')
+    st.markdown(':tulip:')  # :cherry_blossom::rose::hibiscus::sunflower::blossom:
+    sql = st.session_state.get('show_sql','')
     if answ is not None:
         st.write(answ)
-        sql = st.session_state.get('show_sql','')
         if len(sql) > 0:
             st.write(f'SQL query: {sql}')
+            st.write(st.session_state.get('explanation',''))
             st.write('You can check the Data View tab to explore the data visually.')
         else:
             st.write('No SQL query used.')
+    else:
+        st.write('Ask me anything about the database!')
+
+    df = st.session_state.get('sql_result',None)  
+    if df is not None:
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="Download data as CSV",
+            data=csv,
+            file_name='data.csv',
+            mime='text/csv',
+            key='download_data_btn'
+        )
+    else:
+        st.warning('No data available to download.')
 
 @st.fragment()
-def render_pyg():
-    sql = st.session_state['show_sql']
+def render_pyg(sql=None):
     if sql is None or sql == '' or 'ERR' in sql.upper():
-        st.write('waiting for a valid sql')
+        #st.write('waiting for a valid sql')
+        return
+    if st.session_state['sql_result'] is None:
+        st.write('no data to show')
         return
     
-    print('render_pygwalker')
+    print('get_pyg_renderer',sql)
     renderer = get_pyg_renderer(sql)
-    if renderer is None:
-        st.warning("查询结果为空，请检查SQL语句或数据源。\n"+sql)
-    else:
+    if renderer is not None:
         renderer.explorer()
 
 # main function
@@ -262,9 +277,11 @@ if doorkeeper.hasLogin():
         else:
             lastDiag = st.session_state.messages[-1]
             answ = lastDiag.get('reply','')
-            render_answer(answ)    
+            render_answer(answ) 
+          
     with tabs[1]:
-        render_pyg()
+        sql = st.session_state.get('show_sql','')
+        render_pyg(sql)
     with tabs[2]:
         db_info = st.session_state['db_summary']['database']
         tables = st.session_state['db_summary']['tables']

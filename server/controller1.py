@@ -160,8 +160,6 @@ class Controller:
         
         new_log = self.copy_to_log(answ, new_log)
         new_log['sql'] = answ['reply']
-        ### RISKY: for test only, force a error complex SQL
-        new_log['sql'] = """SELECT name, MIN(publishdate) AS earliest_publish_date FROM books1 WHERE author LIKE '%但丁%' UNION SELECT name, MIN(publishdate) AS earliest_publish_date FROM books2 WHERE author LIKE '%但丁%' GROUP BY name"""
 
         return
 
@@ -271,10 +269,13 @@ class Controller:
         resp = make_a_answ()
         resp['type'] = pipeline[-1].get('type','chat')              # 最终回复类型
         resp['reply'] = pipeline[-1].get('reply','')                # 最终回复 
-        resp['sql'] = pipeline[-1].get('sql','')                    # 最终呈现执行结果的SQL
+        resp['sql'] = pipeline[-1].get('sql','')
+        
         answ = []
         for log in pipeline:
             answ.append(f'step {log["from"]}, status {log["status"]}, reply: {log.get("reply","")[:50]} ')
+            if log.get('from') == 'nl2sql':
+                resp['explanation'] = log.get('explanation','')
         resp['reasoning'] = '\n'.join(answ)      # 记录推理过程
         last_log = pipeline[-1]
         if last_log['from'] in ['sql_refine','sql4db'] and last_log['status'] == 'failed':
@@ -336,7 +337,7 @@ async def main():
         "你查询数据库的所有表，告诉我结果",
         "列出其中作者不包含但丁的书"
     ]
-    user_msgs = ['查询books1和books2两个表中，作者名字含有“但丁”的所有书籍，并找出这些书籍的最早出版日期']
+    user_msgs = ['有多少本跟神曲相关的书']
     context = list()
     for i, msg in enumerate(user_msgs):
         start = time.time()
@@ -350,6 +351,9 @@ async def main():
         context.append(resp)
 
         print(f"Time: {int(time.time()-start)}")
+        for k,v in resp.items():
+            if v is not None and len(str(v)) > 0:
+                print(f"{k}: {v}")
         print(f"Answer: {resp['status']}")
         print(f"{resp['reply']}\n")
         print(f"{resp['reasoning']}")
