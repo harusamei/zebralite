@@ -94,7 +94,7 @@ if __name__ == '__main__':
     ]
     for item in agents:
         start = time.time()
-        query = tmpl.format(db_info='', examples='', question=questions[0])
+        query = tmpl.format(db_info='', examples='', question=questions[0], chat_lang='English')
         agent = LLMAgent(agentName=item['name'], model=item['model'])
         answers = asyncio.run(agent.ask_llm(query, ''))
         print(answers)

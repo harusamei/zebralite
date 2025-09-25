@@ -5,7 +5,7 @@
 import sys,os
 sys.path.insert(0, os.getcwd().lower())
 from settings import z_config
-from zebura_core.placeholder import make_dbServer, make_a_answ,check_llm_result
+from zebura_core.placeholder import make_dbServer, make_a_answ,check_llm_result,temout
 from zebura_core.LLM.prompt_loader1 import Prompt_generator
 from zebura_core.knowledges.schema_loader_lite import ScmaLoader
 from zebura_core.LLM.ans_extractor import AnsExtractor
@@ -37,7 +37,7 @@ class GenActivity:
 
     # 主功能, 生成最终用于查询的SQL, **不管能否生成** reply都是sql
     async def gen_activity(self, question, sql, tb_names=None):
-
+        
         resp = make_a_answ()
         resp['type'] = 'sql'
         resp['reply'] = sql   # 默认不需要修正
@@ -81,10 +81,7 @@ class GenActivity:
         llm_aws = await self.llm.ask_llm(query, '')
         result = self.ans_extr.output_extr(llm_aws)
         #Track the query
-        # outfile = open('tem.out', 'a', encoding='utf-8-sig')
-        # outfile.write(query)
-        # outfile.write(llm_aws)
-        # outfile.write("\n------------\n")
+        # temout(query,llm_aws)
 
         # 模型调用出错，姑且认为SQL正确
         if not check_llm_result(resp, result):

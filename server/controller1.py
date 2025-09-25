@@ -34,7 +34,8 @@ class Controller:
         # 状态出错时的默认回复
         self.default_reply = {
                     "any": "something went wrong, please try again.",
-                    "nl2sql": "sorry, I cannot understand your question, could you please rephrase it?"
+                    "nl2sql": "sorry, I cannot understand your question, could you please rephrase it?",
+                    "sql4db": "sorry, I cannot execute the SQL query, please check the syntax and try again."
         }
         
         # 默认的执行策略                             # related table names
@@ -50,7 +51,7 @@ class Controller:
             "(failed,*)": self.transit,             # reset action
             "(*,*)": self.end                       # whitelist principle: end anything not on the list
         }
-        print("Controller init success, the current chat language is %s" % self.chat_lang)
+        logging.info("Controller init success, the current chat language is %s" % self.chat_lang)
     
     def isEnd(self,log):
         for state in self.endTypes:
@@ -159,6 +160,8 @@ class Controller:
         
         new_log = self.copy_to_log(answ, new_log)
         new_log['sql'] = answ['reply']
+        ### RISKY: for test only, force a error complex SQL
+        new_log['sql'] = """SELECT name, MIN(publishdate) AS earliest_publish_date FROM books1 WHERE author LIKE '%但丁%' UNION SELECT name, MIN(publishdate) AS earliest_publish_date FROM books2 WHERE author LIKE '%但丁%' GROUP BY name"""
 
         return
 
@@ -209,6 +212,13 @@ class Controller:
         new_log = pipeline[-1]
         sql = new_log['sql']
         answ = self.executor.exeSQL(sql)
+        if answ['status'] == 'failed':
+            new_log['status'] = 'failed'
+            new_log['type'] = 'err_sql'
+            new_log['err_msg'] = answ.get('reply','')
+            new_log['reply'] = self.default_reply.get('sql4db', self.default_reply['any'])
+            return
+        
         new_log = self.copy_to_log(answ, new_log)
         new_log['type'] = 'db_result'
 
@@ -326,7 +336,7 @@ async def main():
         "你查询数据库的所有表，告诉我结果",
         "列出其中作者不包含但丁的书"
     ]
-    user_msgs = ['给我分析书籍的发布趋势']
+    user_msgs = ['查询books1和books2两个表中，作者名字含有“但丁”的所有书籍，并找出这些书籍的最早出版日期']
     context = list()
     for i, msg in enumerate(user_msgs):
         start = time.time()

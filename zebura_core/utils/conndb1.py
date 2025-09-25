@@ -74,36 +74,34 @@ def connect(dbServer) -> object:
         return None   
     return engine
 
-# session为None时，创建会话，执行SQL查询，关闭会话
-# session不为None时，执行SQL查询，不关闭会话
-# return cursorResult
-def db_execute(engine,sql_query):
+
+# 创建会话，执行SQL查询，关闭会话
+# return cursor
+def db_execute(engine, sql_query):
     try:
         session = make_dbSession(engine)
         # 使用 text 函数执行原生 SQL 查询
         cursor = session.execute(text(sql_query))
+        session.commit()
         session.close()
-        if cursor.returns_rows:
-            return cursor
-        return None
-    except OperationalError as e:
+        return cursor
+    except Exception as e:
         # 处理连接失效
         session.rollback()
         session.close()
-        return (f"ERR: {e}")
-    
-# 执行多条SQL语句，返回最后一条的cursor  
+        return f"ERR: {e}"
+
+    # 执行多条SQL语句，返回最后一条的cursor  
 def db_multi_execute(engine, sql_list):
     try:
         session = make_dbSession(engine)
         for sql in sql_list:
             cursor = session.execute(text(sql))
+        
         session.commit()
         session.close()
-        if cursor.returns_rows:
-            return cursor
-        return None
-    except OperationalError as e:
+        return cursor
+    except Exception as e:
         # 处理连接失效
         session.rollback()
         session.close()
@@ -117,22 +115,26 @@ if __name__ == "__main__":
     dbServer['db_name'] = 'ebook'
     
     engine = connect(dbServer)   
-    sql_query = "SELECT current_database();"        # for postgres
-    sql_query = "SHOW DATABASES"                    # for mysql
-    cursor = db_execute(engine, sql_query)
+    sqls = ["SELECT database();", 'select * from books1 where author = "!!!但丁";']        # for mysql
+    cursor = db_execute(engine, sqls[1])
     if cursor is None:
-        print("No results returned or error occurred.")
-        sys.exit(1)
+        print("sql execution failed")
+        sys.exit(0)
     if isinstance(cursor, str) and cursor.startswith("ERR:"):
-        print(cursor)
-        sys.exit(1)
-
-    rows = cursor.fetchall() if cursor else []
+        print(f'error: {cursor}')
+        sys.exit(0)
+    if not cursor.returns_rows: # 例如 INSERT/UPDATE/DELETE, 非select
+        print(cursor.rowcount)  # 受影响的行数
+        sys.exit(0)
+    
+    rows = cursor.fetchall()  
     columns = cursor.keys() if hasattr(cursor, 'keys') else [desc[0] for desc in cursor.description]
-    sqls = ['select * from books1 where author LIKE "%但丁%";', 
-            'create temporary table temp_books as select * from books1 limit 10;',
-            'select * from temp_books;']
+    
     cursor = db_multi_execute(engine, sqls)
+    if cursor is None or isinstance(cursor, str):
+        print("sql execution failed")
+        sys.exit(0)
+
     if cursor and cursor.returns_rows:
         print(cursor.fetchone())
     print("Database connection test completed.")

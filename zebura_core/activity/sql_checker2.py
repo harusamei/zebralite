@@ -88,35 +88,33 @@ class CheckSQL:
         
         return tup
 
+    # 检查SQL是否有结果
     def check_sql_result(self, sql):
         tup = self.execute_sql(sql)                 # 执行整个SQL
-        if tup[0]:
-            row = tup[1].fetchone()
-            if row:
+        if tup[0] and tup[1].returns_rows:
+            result = tup[1].fetchall()
+            if result and len(result) > 0:
                 return True
         return False
     
     def is_value_exist(self, tb_name, col, val):
-
+        # 任意一种匹配
         sql1 = f"SELECT {col} FROM {tb_name} WHERE {col} = '{val}' LIMIT 1"
         sql2 = f"SELECT {col} FROM {tb_name} WHERE {col} LIKE '%{val}%' LIMIT 1"
-        
-        tup = self.execute_sql(sql1)
-        if tup[0] and tup[1] > 0:
-            return (True, val, 'EXCT')       # (True, val, 'EXCT')
-        
-        tup = self.execute_sql(sql2)
-        if tup[0] and tup[1] > 0:
-            return (True, f'%{val}%', 'FUZZY') # (True, val, 'FUZZY')
-        return (False, val, 'EMTY')       
+        flag = self.check_sql_result(sql1)
+        if not flag:
+            flag = self.check_sql_result(sql2)
+        return flag
+    
         
     # 执行SQL
     def execute_sql(self, sql) -> tuple:
-        try:
-            result = db_execute(self.db_eng, sql)
-            return [True, result]
-        except Exception as e:
-            return (False, f'{e.args}')
+
+        result = db_execute(self.db_eng, sql)
+        if result is None or isinstance(result, str):
+            return (False, result)
+        return (True, result)
+        
 
 if __name__ == "__main__":
 

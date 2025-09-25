@@ -48,9 +48,9 @@ class ExeActivity:
         answer = make_a_answ()
         try:
             cursor = db_execute(self.db_eng, sql)
-            if cursor is None or (isinstance(cursor, str) and cursor.startswith("ERR:")):
+            if cursor is None or isinstance(cursor, str):
                 answer['status'] = "failed"
-                answer['reply'] = "err_cursor: no result"
+                answer['reply'] = f"err_cursor: {cursor}" if isinstance(cursor, str) else "execution failed"
                 return answer
             rows = cursor.fetchall() if cursor else []
             columns = cursor.keys() if hasattr(cursor, 'keys') else [desc[0] for desc in cursor.description]
@@ -95,7 +95,6 @@ if __name__ == "__main__":
     sql = """
     SELECT * FROM books1 WHERE publisher = '译林出版社' AND (name LIKE '%Dante%' OR keywords LIKE '%Dante%') UNION SELECT * FROM books2 WHERE publisher = '译林出版社' AND (name LIKE '%Dante%' OR keywords LIKE '%Dante%');
 """
-    
     results = exr.exeSQL(sql)
     print(results)
     df = exr.sql2df(sql)
