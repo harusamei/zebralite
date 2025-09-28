@@ -59,8 +59,7 @@ class ExeActivity:
             if len(data) > 0:
                 answer["reply"] = data
             else:
-                answer['status'] = "failed"
-                answer['reply'] = "err_cursor: no result"
+                answer['reply'] = 'no query results'
         except Exception as e:
             print(f"Error: {e}")
             answer["reply"] = f"err_cursor, {e}"

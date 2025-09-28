@@ -57,7 +57,7 @@ def connect(dbServer) -> object:
         sql_query = "SELECT datname FROM pg_database WHERE datistemplate = false;"
     else:
         print(f"ERR: {db_type} not supported")
-        raise ValueError(f"ERR_cursor: {db_type} not supported")
+        raise ValueError(f"err_cursor: {db_type} not supported")
     
     try:
         # 创建数据库引擎

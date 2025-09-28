@@ -174,35 +174,35 @@ class Controller:
             if 'request' in contx['type']:
                 msg = f"user: {contx.get('msg')}"
             else:
-                msg = f"agent: {contx.get('reply')}"
+                msg = f"agent: {contx.get('sql','')}{contx.get('reply','')}"
             msgs.append(msg)
         history = '\n'.join(msgs)
         last_query = new_log['question']
         chat_lang = self.chat_lang
 
-        tmpl = self.prompter.get_prompt('rewrite')
+        tmpl = self.prompter.get_prompt('rewrite1')
         query = tmpl.format(history=history, last_query=last_query, chat_lang=chat_lang)
         llm_answ = await self.llm.ask_llm(query, "")
         # Track the query
         temout([query, llm_answ])
 
         result = self.act_maker.ans_extr.output_extr(llm_answ)
-        if not self.check_result(new_log, result, ['intent','rewritten']):
+        if not self.check_result(new_log, result, ['type','action']):
             return
         result = result['msg']
-        if result['intent'].lower() == 'end':
+        if result['type'].lower() == 'end':
             new_log['status'] = 'succ'
             new_log['reply'] = 'thanks, let\'s end the conversation.'
             new_log['type'] = 'end'
-        elif result['intent'].lower() == 'confirm':
+        elif result['type'].lower() == 'confirm':
             new_log['status'] = 'succ'
-            new_log['reply'] = result.get('direct_reply','Sure, I am here to help you.')
+            new_log['reply'] = result.get('action','Sure, I am here to help you.')
             new_log['type'] = 'chat_confirm'
         else: 
             new_log['status'] = 'succ'
             new_log['ori_question'] = new_log['question']
-            new_log['question'] = result['rewritten']
-            new_log['reply'] = result['rewritten']
+            new_log['question'] = result['action']
+            new_log['reply'] = result['action']
         return
 
     # query db
@@ -337,7 +337,8 @@ async def main():
         "你查询数据库的所有表，告诉我结果",
         "列出其中作者不包含但丁的书"
     ]
-    user_msgs = ['有多少本跟神曲相关的书']
+    user_msgs = ['有多少本跟神曲相关的书',
+                 '2000年以后出版的']
     context = list()
     for i, msg in enumerate(user_msgs):
         start = time.time()
