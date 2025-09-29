@@ -167,15 +167,20 @@ class Controller:
     async def rewrite(self, pipeline):
 
         new_log = pipeline[-1]
+        
         history = pipeline[0]['context'] if 'context' in pipeline[0] else []
         # 保留最近3轮的请求
         msgs = []
+        lastSql = ''
         for contx in history[-6:]:
             if 'request' in contx['type']:
                 msg = f"user: {contx.get('msg')}"
             else:
-                msg = f"agent: {contx.get('sql','')}{contx.get('reply','')}"
+                msg = f"agent: \n\t- {contx.get('sql','')}\n\t- {contx.get('reply','')}\n"
+            if len(contx.get('sql','')) > 0:
+                lastSql = contx.get('sql','')
             msgs.append(msg)
+
         history = '\n'.join(msgs)
         last_query = new_log['question']
         chat_lang = self.chat_lang
@@ -190,19 +195,30 @@ class Controller:
         if not self.check_result(new_log, result, ['type','action']):
             return
         result = result['msg']
-        if result['type'].lower() == 'end':
-            new_log['status'] = 'succ'
-            new_log['reply'] = 'thanks, let\'s end the conversation.'
-            new_log['type'] = 'end'
-        elif result['type'].lower() == 'confirm':
-            new_log['status'] = 'succ'
+        new_log['status'] = 'succ'  # 默认结束对话
+        new_log['type'] = 'end'
+        new_log['ori_question'] = new_log['question']
+        new_log['reply'] = result.get('action','bye')
+
+        if result['type'].lower() == 'confirm':
             new_log['reply'] = result.get('action','Sure, I am here to help you.')
             new_log['type'] = 'chat_confirm'
-        else: 
-            new_log['status'] = 'succ'
-            new_log['ori_question'] = new_log['question']
+        elif result['type'].lower() == 'new':   # 新查询
             new_log['question'] = result['action']
             new_log['reply'] = result['action']
+            new_log['type'] = 'query'
+        elif result['type'].lower() == 'continue':  # 继续查询
+            sqlBlock =f'```SQL\n{lastSql}```\n'
+            tStr = 'Please perform an iterative query: based on the original SQL statement:\n'
+            new_log['reply'] = tStr+ sqlBlock + result['action']
+            new_log['question'] = new_log['reply']
+            new_log['type'] = 'query'
+        elif result['type'].lower() == 'sql_fix':
+            sqlBlock =f'```SQL\n{lastSql}```\n'
+            tStr = 'Please modify the SQL statement below to make it executable\n'
+            new_log['reply'] = tStr + sqlBlock + result['action']
+            new_log['question'] = new_log['reply']
+            new_log['type'] = 'query'
         return
 
     # query db
@@ -233,7 +249,8 @@ class Controller:
         result = pre_log.get('reply',[])
         sql_result = 'no result found\n'
         Temp_table = "no_table"
-        if len(result) > 0:
+        # TODO, 没有结果时的处理
+        if isinstance(result,list) and len(result) > 0 and (isinstance(result[0], dict) or isinstance(result[0], (list, tuple))):
             sql_result = 'total rows count: {}\n'.format(len(result))        
             tdf = pd.DataFrame(result[:max_rows])
             sql_result += tdf.to_markdown(index=False, tablefmt="grid")
@@ -337,8 +354,7 @@ async def main():
         "你查询数据库的所有表，告诉我结果",
         "列出其中作者不包含但丁的书"
     ]
-    user_msgs = ['有多少本跟神曲相关的书',
-                 '2000年以后出版的']
+    user_msgs = ['你好，请给我列出一些企业名单']
     context = list()
     for i, msg in enumerate(user_msgs):
         start = time.time()

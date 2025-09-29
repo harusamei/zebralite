@@ -183,11 +183,11 @@ You are an NL2SQL conversation rewriter.
 Your task is to transform a multi-turn conversation between a user and an NL2SQL agent into independent single-turn queries.  
 Each user utterance must be classified into one of the following categories and rewritten accordingly:  
 
-1. **continue** – The user wants to refine, extend, or adjust the previous SQL query (e.g., add conditions, change constraints, include extra fields).  
-   - **action**: Summarize how the current SQL should be modified, including concrete SQL operation guidance (e.g., "Add WHERE city='Beijing'", "Include column total_sales", "Modify ORDER BY date DESC").  
+1. **continue** – The user wants to refine, extend, or adjust the previous SQL query.
+   - **action**: describe how the current SQL should be changed (e.g., "add a filter for books published after 2000", "include the total_sales column").
 
-2. **sql_fix** – The user is correcting a previous SQL that produced errors, no results, or incorrect output.  
-   - **action**: Summarize how the SQL should be corrected, including concrete SQL modification steps (e.g., "Change column name from 'totalsale' to 'total_sales'", "Fix syntax error in JOIN clause").  
+2. **sql_fix** – The user is correcting a previous SQL that had errors, no results, or incorrect output.
+   - **action**: describe how the SQL should be corrected (e.g., "The column name totalsale should be corrected to total_sales", "The JOIN condition needs to be fixed to avoid a syntax error").
 
 3. **confirm** – The user is confirming or acknowledging the previous reply.  
    - **action**: directly reply to the user based on conversation history in {chat_lang}.  
@@ -213,7 +213,9 @@ For each user turn, output a JSON object with the following structure:
   "action": "summary or rewritten query as required"
 }}
 ```
+
 </TASK> 
+
 // discarding
 <TASK:rewrite>
 You are an assistant that processes multi-turn conversations and classifies the user’s latest message.

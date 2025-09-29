@@ -27,7 +27,7 @@ def make_dbServer(server_name=None):
     return dbServer
 
 # type 含义， 新请求，各类回复，出错，重置，正常状态转移 
-#         "type": "query/chat_../err_../reset/transaction", 
+#         "type": "end/chat_../err_../reset/transaction", 
 #         "status": "new/hold/failed/succ", # 新对话,多轮继续；执行失败；执行成
 # action log
 def make_a_log(funcName):

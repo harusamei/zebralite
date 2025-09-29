@@ -59,6 +59,11 @@ class ScmaGen:
 
         result = self.ops.show_randow_rows(tb_name, 3)
         result = result.mappings().all()
+        # 没有结构信息
+        if not result:
+            print(f"Table {tb_name} is empty")
+            return
+        
         col_names = result[0].keys()
         tb_df.loc[tb_df['table_name'] == tb_name, 'cols_info'] = ','.join(col_names)
         # 字段名所用语言为tb_lang
@@ -159,6 +164,9 @@ class ScmaGen:
         tmpl = self.prompter.tasks['tb_classification']
         for _, row in tb_df.iterrows():
             print(row['table_name'])
+            if not row['examples'] or pd.isna(row['examples']):
+                print(f"Table {row['table_name']} has no examples, skip")
+                continue
             samples = json.loads(row['examples'])
             s_df = pd.DataFrame(samples)
             tb_md = s_df.to_markdown(index=False)
@@ -578,7 +586,7 @@ if __name__ == '__main__':
 
     s_name = 'Mysql1'
     dbServer = make_dbServer(s_name)
-    dbServer['db_name'] = 'ebook'
+    dbServer['db_name'] = 'zenken'
     # 创建存放文件的目录
     out_path=f'{const.S_TRAINING_PATH}/{dbServer["db_name"]}'
     wk_dir = os.getcwd()
@@ -589,9 +597,9 @@ if __name__ == '__main__':
     
     mg = ScmaGen(dbServer,'Chinese')
     #1. 从数据库中读取所有表的schema信息
-    mg.gen_db_info(xls_name)
-    # 2. 生成table grouping
-    asyncio.run(mg.define_groups_tags(xls_name))
+    # mg.gen_db_info(xls_name)
+    # # 2. 生成table grouping
+    # asyncio.run(mg.define_groups_tags(xls_name))
     asyncio.run(mg.tb_enhance(xls_name))
     # 3. 生成field 上位词
     asyncio.run(mg.field_consolidation(xls_name))

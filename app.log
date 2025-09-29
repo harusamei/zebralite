@@ -151,3 +151,5 @@ INFO - Backing off __post(...) for 1.0s (requests.exceptions.ReadTimeout: HTTPSC
 INFO - Backing off __post(...) for 0.0s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
 INFO - Backing off __post(...) for 0.6s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
 INFO - Backing off __post(...) for 0.4s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
+INFO - Backing off __post(...) for 0.2s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))
+INFO - Backing off __post(...) for 0.6s (requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='log.kanaries.net', port=443): Read timed out. (read timeout=15))

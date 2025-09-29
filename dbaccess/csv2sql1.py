@@ -75,8 +75,8 @@ if __name__ == "__main__":
     from zebura_core.placeholder import make_dbServer
     
     s_name = 'Mysql1'
-    db_name = 'ebook'
-    csv_path = "training/book/raw_data"
+    db_name = 'zenken'
+    csv_path = "training/zenken"
     dbServer = make_dbServer(s_name)
     
     csv_path = os.path.join(os.getcwd(), csv_path)
