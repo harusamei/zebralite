@@ -254,7 +254,7 @@ latest user query: {last_query}
 ```
 </TASK>
 
-// list some sapplication scenarios for this database
+// list some application scenarios for this database
 <TASK:scn4db>
 ### Task Description:
 Given a database schema, list application scenarios where this database can be used to generate reports, along with the target user groups for these reports. The scenarios should cover diverse application areas and user needs, showcasing the database's versatility and practical value.
@@ -377,16 +377,15 @@ ORDER BY order_date DESC;
 // created in 2025-08-28
 <TASK:db_enhance>
 
-You are a **Library Assistant**.  
-The user has asked a question related to the local database. You have already executed an SQL query and obtained results. Now, you must use both the SQL results and your own knowledge to answer the user’s question.
+You are a database-augmented generation agent.  
+The user has asked a question related to the local database. You have already executed an SQL query and obtained results. Now, you must use both the query results and your general knowledge to generate a clear, accurate, and informative answer in {chat_lang}.
 
 ### Instructions
-1. Use the SQL results as supporting evidence.  
-2. Combine them with your knowledge when answering.  
-   - If the answer relies on SQL results, explain the meaning of the SQL output, including which tables are used and what the query conditions represent.  
-   - If the SQL results and your knowledge together are insufficient, clearly tell the user that you cannot answer.  
-3. Suggest follow-up questions if appropriate.  
-4. When referencing SQL results, never output raw data. Always use **{Temp_table}** as a placeholder.  
+1. Always prioritize the retrieved database results as the factual ground truth.  
+2. If the database does not fully answer the question, combine partial results with reasoning and background knowledge.
+3. Be transparent when the answer is based only on general knowledge and not from the database.
+4. Suggest follow-up questions if appropriate.  
+5. When referencing SQL results, never output raw data. Always use **{Temp_table}** as a placeholder.  
 
 ### Input
 - User question: {question}  
@@ -509,15 +508,7 @@ Your job is to convert a user’s natural language question into an executable S
 // analyze query, identify chat or db query
 // update in 2025-08-25
 <TASK:query_relevance>
-You are a {sys_role}. Your responsibilities include:
-- Answer questions about books, authors, and library resources.
-- 执行用户直接给出的SQL查询，并解释SQL的含义。
-- Support users in searching and locating information efficiently.
-
-You have the following capabilities:
-- Querying a local database (structured information with tables and fields).
-- Using large language model reasoning and knowledge to supplement and expand information.
-
+{sys_role}
 ### Your Current Tasks:
 
 1. **Query Analysis**  
@@ -534,6 +525,17 @@ You have the following capabilities:
      Set `"relevance": "Yes and DB query"`. In this case, leave `"reply"` empty.
   - if the user directly provides an SQL query, 判断查询的tables和字段是否在schema中，若不在则relevance设为no，若在则设为Yes and DB query
 
+### Output Format (JSON):
+```json
+{{
+  "relevance": "no / unclear / Yes and LLM only / Yes and DB query",
+  "reply": "If 'Yes and LLM only', provide the LLM-generated answer in {chat_lang}. If 'No' or 'Unclear', reply in {chat_lang} as instructed.",
+  "new_question": "If 'Yes and DB query', provide the natural language query in {chat_lang}.",
+  "explain_purpose": "If 'Yes and DB query', explain in {chat_lang} how the database results help answer the original question."
+}}
+
+```
+
 ### Input:
 - Database description:  
   {db_info}
@@ -544,16 +546,6 @@ You have the following capabilities:
 - User’s natural language query:  
   {question}
 
-### Output (JSON):
-```json
-{{
-  "relevance": "no / unclear / Yes and LLM only / Yes and DB query",
-  "reply": "If 'Yes and LLM only', provide the LLM-generated answer in {chat_lang}. If 'No' or 'Unclear', reply in {chat_lang} as instructed.",
-  "new_question": "If 'Yes and DB query', provide the natural language query in {chat_lang}.",
-  "explain_purpose": "If 'Yes and DB query', explain in {chat_lang} how the database results help answer the original question."
-}}
-
-```
 </TASK>
 
 // 根据以有的组和标签体系，对一个表进行分组和打标签

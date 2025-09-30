@@ -349,12 +349,10 @@ async def main():
                 'What is the average metascore of the movies in the dataset?',
                 '列出可以抽烟的餐厅']
     user_msgs = [
-        "最近十年出版了多少本神曲有关的书",
-        "你只查询了一张数据库表吗",
-        "你查询数据库的所有表，告诉我结果",
-        "列出其中作者不包含但丁的书"
+        "请问制造业包括哪些企业",
+        "你的本地数据库中有哪些表",
+        "组织名称是日本国立大学的数据"
     ]
-    user_msgs = ['你好，请给我列出一些企业名单']
     context = list()
     for i, msg in enumerate(user_msgs):
         start = time.time()

@@ -22,7 +22,7 @@ D_MAX_PROMPT_LEN = 4000        # default max length of prompt
 S_METADATA_FILE = 'metadata.xlsx'    # metadata file name
 S_TRAINING_PATH = 'training'
 S_PROMPT_FILE = 'zebura_core/LLM/prompt.txt'         # prompt file name
-
+S_ROLE_FILE = 'zebura_core/LLM/sysrole.txt'               # role file name
 
 # chat_lang, 该项目默认交流语言
 # val_lang, 字段内容的语言

@@ -76,7 +76,7 @@ if __name__ == "__main__":
     
     s_name = 'Mysql1'
     db_name = 'zenken'
-    csv_path = "training/zenken"
+    csv_path = "training/zenken/raw data"   # CSV文件目录
     dbServer = make_dbServer(s_name)
     
     csv_path = os.path.join(os.getcwd(), csv_path)

@@ -96,7 +96,8 @@ class ScmaGen:
             str_flag = str_flag or column_type_series.str.contains('text', case=False).any()
 
             if str_flag:
-                langCode = detect_language(' '.join(one_col))
+                tSample = ' '.join([x if x is not None else '' for x in one_col])
+                langCode = detect_language(tSample)
                 if langCode is not None:
                     lang = langcode2name(langCode)
                     fd_df.loc[fd_df['column_name'] == key, 'val_lang'] = lang
@@ -596,10 +597,10 @@ if __name__ == '__main__':
     xls_name = os.path.join(directory, f'{const.S_METADATA_FILE}')  
     
     mg = ScmaGen(dbServer,'Chinese')
-    #1. 从数据库中读取所有表的schema信息
-    # mg.gen_db_info(xls_name)
-    # # 2. 生成table grouping
-    # asyncio.run(mg.define_groups_tags(xls_name))
+    # 1. 从数据库中读取所有表的schema信息
+    mg.gen_db_info(xls_name)
+    # 2. 生成table grouping
+    asyncio.run(mg.define_groups_tags(xls_name))
     asyncio.run(mg.tb_enhance(xls_name))
     # 3. 生成field 上位词
     asyncio.run(mg.field_consolidation(xls_name))

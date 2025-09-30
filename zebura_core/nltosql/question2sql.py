@@ -89,10 +89,11 @@ class Question2SQL:
 
         db_info = self.scha_loader.get_db_info()
         tbs_info = self.scha_loader.gen_tbs_prompt(tb_names)
-        
-        tmpl = self.prompter.tasks['query_relevance']
+
+        tmpl = self.prompter.get_prompt('query_relevance')
+        ra = self.prompter.get_role(self.sys_role)
         query = tmpl.format(question=question, db_info=db_info, tbs_info=tbs_info, 
-                            sys_role=self.sys_role,chat_lang=self.chat_lang)
+                            sys_role=ra,chat_lang=self.chat_lang)
         llm_answ = await self.llm.ask_llm(query, '')
         # Track the query
         temout([query, llm_answ])
@@ -105,7 +106,7 @@ class Question2SQL:
             return {'status': 'failed', 'msg': 'question is empty'}
         
         tbs_info = self.scha_loader.gen_tbs_prompt(tb_names)
-        tmpl = self.prompter.tasks['nl_to_sql']
+        tmpl = self.prompter.get_prompt('nl_to_sql')
         query = tmpl.format(tbs_info=tbs_info, question=question,chat_lang=self.chat_lang)
         llm_answ = await self.llm.ask_llm(query, '')
         result = self.ans_ext.output_extr(llm_answ)

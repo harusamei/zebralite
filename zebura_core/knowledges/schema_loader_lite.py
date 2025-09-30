@@ -116,7 +116,7 @@ class ScmaLoader:
         onetb = self.db_Info.get(tableName)
         if onetb is None:
             return None
-        onetb = onetb[onetb['column_name']==columnName]
+        onetb = onetb[onetb['column_name'].str.lower()==columnName]
         if onetb.empty:
             return None
         tdict = onetb.iloc[0].to_dict()
@@ -184,6 +184,9 @@ class ScmaLoader:
         col_info = []
         for col_name in col_names:
             t_dict = self.get_fieldInfo(tb_name, col_name)
+            if t_dict is None:
+                print(f"Warning: no info for {tb_name}.{col_name}")
+                continue
             t_dict = {k:v for k,v in t_dict.items() if k in need_cols}
             if 'examples' in t_dict:
                 t_dict['examples'] = t_dict['examples'][:50] + '...' if len(t_dict['examples'])>50 else t_dict['examples']  
